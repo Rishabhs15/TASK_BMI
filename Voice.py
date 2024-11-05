@@ -1,61 +1,59 @@
-pip install SpeechRecognition pyttsx3
+# server.py
+import socket
+import threading
 
-import speech_recognition as sr
-import pyttsx3
-from datetime import datetime
-import webbrowser
+# Server details
+HOST = '127.0.0.1'  # Localhost
+PORT = 65432        # Port to listen on
 
-def speak(text):
-    engine = pyttsx3.init()
-    engine.say(text)
-    engine.runAndWait()
+# List to hold connected client sockets
+clients = []
 
-def listen():
-    recognizer = sr.Recognizer()
-    with sr.Microphone() as source:
-        print("Listening...")
-        recognizer.adjust_for_ambient_noise(source)
-        audio = recognizer.listen(source)
-    try:
-        command = recognizer.recognize_google(audio).lower()
-        print(f"You said: {command}")
-    except sr.UnknownValueError:
-        speak("Sorry, I didn't catch that. Could you please repeat?")
-        return None
-    except sr.RequestError:
-        speak("Sorry, I'm having trouble connecting to the recognition service.")
-        return None
-    return command
-
-def respond_to_command(command):
-    if "hello" in command:
-        speak("Hello! How can I assist you today?")
-    elif "time" in command:
-        current_time = datetime.now().strftime("%I:%M %p")
-        speak(f"The current time is {current_time}.")
-    elif "date" in command:
-        current_date = datetime.now().strftime("%B %d, %Y")
-        speak(f"Today’s date is {current_date}.")
-    elif "search" in command:
-        speak("What would you like me to search for?")
-        query = listen()
-        if query:
-            url = f"https://www.google.com/search?q={query}"
-            speak(f"Searching for {query}")
-            webbrowser.open(url)
-    else:
-        speak("Sorry, I didn’t understand that command.")
-
-def main():
-    speak("Hello! I am your voice assistant. How can I help you?")
+# Function to handle incoming messages and relay to other client
+def handle_client(client_socket, client_address):
+    print(f"[NEW CONNECTION] {client_address} connected.")
+    
     while True:
-        command = listen()
-        if command:
-            if "exit" in command or "quit" in command:
-                speak("Goodbye!")
+        try:
+            # Receive message from client
+            message = client_socket.recv(1024).decode('utf-8')
+            
+            if not message:  # Client disconnected
                 break
-            else:
-                respond_to_command(command)
+            
+            print(f"[{client_address}] {message}")
+            
+            # Send the message to the other client
+            for client in clients:
+                if client != client_socket:
+                    client.send(f"[{client_address}] {message}".encode('utf-8'))
+        except:
+            # Remove client if an error occurs
+            clients.remove(client_socket)
+            client_socket.close()
+            break
+    
+    print(f"[DISCONNECT] {client_address} disconnected.")
+    clients.remove(client_socket)
+    client_socket.close()
 
-if _name_ == "_main_":
-    main()
+# Main function to start the server
+def start_server():
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind((HOST, PORT))
+    server.listen(2)  # Server listening for 2 clients
+    
+    print(f"[STARTING] Server is starting on {HOST}:{PORT}")
+    
+    while True:
+        client_socket, client_address = server.accept()
+        clients.append(client_socket)
+        
+        # Start a new thread to handle the client
+        thread = threading.Thread(target=handle_client, args=(client_socket, client_address))
+        thread.start()
+        
+        print(f"[ACTIVE CONNECTIONS] {threading.active_count() - 1}")
+
+if __name__ == "__main__":
+    start_server()
